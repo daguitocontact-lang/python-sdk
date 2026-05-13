@@ -14,10 +14,10 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/daguito/"><img src="https://img.shields.io/pypi/v/daguito.svg?style=flat-square&color=0a0a0a" alt="pypi version" /></a>
-  <a href="https://pypi.org/project/daguito/"><img src="https://img.shields.io/pypi/dm/daguito.svg?style=flat-square&color=0a0a0a" alt="pypi downloads" /></a>
-  <a href="https://github.com/daguitocontact-lang/daguito-python/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/daguito.svg?style=flat-square&color=0a0a0a" alt="license" /></a>
-  <a href="https://pypi.org/project/daguito/"><img src="https://img.shields.io/pypi/pyversions/daguito.svg?style=flat-square&color=0a0a0a" alt="python versions" /></a>
+  <a href="https://pypi.org/project/daguito-sdk/"><img src="https://img.shields.io/pypi/v/daguito-sdk.svg?style=flat-square&color=0a0a0a" alt="pypi version" /></a>
+  <a href="https://pypi.org/project/daguito-sdk/"><img src="https://img.shields.io/pypi/dm/daguito-sdk.svg?style=flat-square&color=0a0a0a" alt="pypi downloads" /></a>
+  <a href="https://github.com/daguitocontact-lang/daguito-python/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/daguito-sdk.svg?style=flat-square&color=0a0a0a" alt="license" /></a>
+  <a href="https://pypi.org/project/daguito-sdk/"><img src="https://img.shields.io/pypi/pyversions/daguito-sdk.svg?style=flat-square&color=0a0a0a" alt="python versions" /></a>
 </p>
 
 ---
@@ -25,10 +25,12 @@
 Async-first. Python 3.10+. Built on `httpx` + `websockets`. Type-hinted everywhere. Mirrors the [TypeScript SDK](https://github.com/daguitocontact-lang/js-sdk) feature-for-feature.
 
 ```bash
-uv add daguito
+uv add daguito-sdk
 # or
-pip install daguito
+pip install daguito-sdk
 ```
+
+> Package name is `daguito-sdk`. Import name is `daguito` — same pattern as `scikit-learn` / `sklearn`.
 
 ## What you get
 
