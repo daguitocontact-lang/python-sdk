@@ -23,13 +23,17 @@ by this class so callers stay focused on the conversation.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import time
-from typing import Any, AsyncIterator, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable, TypeVar
 
 import websockets
 from websockets.asyncio.client import ClientConnection, connect
+
+ToolHandler = Callable[[dict[str, Any]], Awaitable[Any]] | Callable[[dict[str, Any]], Any]
+T = TypeVar("T", bound=ToolHandler)
 
 from ._url import random_session_id, to_ws_url
 from .emitter import Emitter
@@ -76,6 +80,14 @@ class WebhookStreamSession:
         self._iter_queues: list[asyncio.Queue[tuple[str, Any] | None]] = []
         self._recv_task: asyncio.Task[None] | None = None
         self._pending: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
+        # Registered tool handlers keyed by tool name. When the server emits
+        # `agent.tool_call_started` we look up the handler, run it, and push
+        # a `tool_result` frame back so the LLM gets the actual return value.
+        self._tool_handlers: dict[str, ToolHandler] = {}
+        # OpenAI-style tool specs (name/description/parameters) we send on
+        # every message via `base_input.client_tools` so the flow's ai_agent
+        # node merges them with its statically-declared tools.
+        self._tool_specs: dict[str, dict[str, Any]] = {}
 
     # ─── Lifecycle ──────────────────────────────────────────────────────
 
@@ -189,6 +201,55 @@ class WebhookStreamSession:
             except ValueError:
                 pass
 
+    # ─── Client-side tools ──────────────────────────────────────────────
+
+    def tool(
+        self,
+        name: str,
+        description: str,
+        parameters: dict[str, Any],
+        timeout_seconds: float = 30.0,
+    ) -> Callable[[T], T]:
+        """Register a tool the LLM can invoke during this session.
+
+        The shape follows OpenAI function-calling exactly:
+        `name`, `description`, and a JSON Schema `parameters` object. When the
+        LLM calls this tool, your handler runs locally and its return value
+        is fed back to the model as the tool result.
+
+        Usage:
+
+            @session.tool(
+                name="update_soap_section",
+                description="Updates a SOAP section with new info",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "section": {"type": "string"},
+                        "content": {"type": "string"},
+                    },
+                    "required": ["section", "content"],
+                },
+            )
+            async def update_soap(args: dict) -> dict:
+                # do work, return JSON-serialisable payload
+                return {"success": True, "soap_id": "..."}
+
+        Returns the original function so the decorator is transparent.
+        """
+
+        def decorator(func: T) -> T:
+            self._tool_handlers[name] = func
+            self._tool_specs[name] = {
+                "name": name,
+                "description": description,
+                "parameters": parameters,
+                "client_timeout_ms": int(timeout_seconds * 1000),
+            }
+            return func
+
+        return decorator
+
     # ─── Internals ──────────────────────────────────────────────────────
 
     async def _dispatch(
@@ -198,7 +259,20 @@ class WebhookStreamSession:
             return
         inbound = self._to_inbound(message)
         envelope: dict[str, Any] = {"type": "message", "message": inbound}
-        computed_base = {**self._compute_base_input(message), **(base_input or self._opts.base_input or {})}
+        computed_base = {
+            **self._compute_base_input(message),
+            **(base_input or self._opts.base_input or {}),
+        }
+        # Auto-inject the OpenAI-shaped tool specs for any tool registered
+        # via @session.tool. The flow's ai_agent node merges these with the
+        # tools declared statically on its config so the LLM sees both sets.
+        if self._tool_specs:
+            existing = computed_base.get("client_tools")
+            specs = list(self._tool_specs.values())
+            if isinstance(existing, list):
+                computed_base["client_tools"] = existing + specs
+            else:
+                computed_base["client_tools"] = specs
         if computed_base:
             envelope["base_input"] = computed_base
         await self._ws.send(json.dumps(envelope))
@@ -332,14 +406,27 @@ class WebhookStreamSession:
             return
 
         if kind == "node.emit":
+            emit_kind = str(data.get("kind", ""))
             self._dispatch_event(
                 "node.emit",
-                NodeEmitEvent(
-                    node_id=node_id,
-                    kind=str(data.get("kind", "")),
-                    data=data,
-                ),
+                NodeEmitEvent(node_id=node_id, kind=emit_kind, data=data),
             )
+            # If the LLM invoked one of our registered tools, run the handler
+            # in the background and push the result back. We schedule rather
+            # than await so the recv loop keeps draining tokens/events from
+            # the server while the tool runs.
+            if emit_kind == "agent.tool_call_started":
+                tool_name = data.get("tool_name")
+                call_id = data.get("call_id")
+                args = data.get("args")
+                if (
+                    isinstance(tool_name, str)
+                    and isinstance(call_id, str)
+                    and tool_name in self._tool_handlers
+                ):
+                    asyncio.create_task(
+                        self._run_client_tool(tool_name, call_id, args or {})
+                    )
             return
 
         if kind == "flow.completed":
@@ -362,6 +449,40 @@ class WebhookStreamSession:
                 ),
             )
             return
+
+    async def _run_client_tool(
+        self, tool_name: str, call_id: str, args: dict[str, Any]
+    ) -> None:
+        """Execute a registered tool handler and push the result back over WS."""
+        handler = self._tool_handlers.get(tool_name)
+        if handler is None or self._ws is None:
+            return
+        result: Any
+        error: str | None = None
+        try:
+            outcome = handler(args)
+            if inspect.isawaitable(outcome):
+                result = await outcome
+            else:
+                result = outcome
+        except Exception as exc:
+            log.exception("tool handler %r raised", tool_name)
+            result = None
+            error = f"{type(exc).__name__}: {exc}"
+
+        frame: dict[str, Any] = {
+            "type": "tool_result",
+            "call_id": call_id,
+            "ok": error is None,
+        }
+        if error is not None:
+            frame["error"] = error
+        else:
+            frame["result"] = result
+        try:
+            await self._ws.send(json.dumps(frame))
+        except Exception:
+            log.exception("failed to send tool_result for %r", call_id)
 
     def _dispatch_event(self, event_type: str, payload: Any) -> None:
         self._emitter.emit(event_type, payload)
