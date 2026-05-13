@@ -37,6 +37,19 @@ class WebhookStreamOptions:
     session_key: str | None = None
     base_input: dict[str, Any] | None = None
     auto_reconnect: bool = True
+    scope: dict[str, str | int | float | bool] | None = None
+    """
+    Server-enforced metadata filter applied to KB searches in this session.
+
+    Example: `{"consultation_uuid": "abc-123", "patient_id": "456"}` makes
+    every `search_knowledge_base` call return only chunks whose payload
+    matches all those keys. The LLM never sees these values — Daguito
+    injects them at the tool boundary, so a hallucinated UUID can't widen
+    the scope or leak data across conversations.
+
+    Only primitive values (str, int, float, bool) are forwarded. Arrays
+    and objects are silently dropped.
+    """
 
 
 # ─── Sendable message builders ─────────────────────────────────────────────

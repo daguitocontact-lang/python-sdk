@@ -273,6 +273,10 @@ class WebhookStreamSession:
                 computed_base["client_tools"] = existing + specs
             else:
                 computed_base["client_tools"] = specs
+        # Server-side scope filter for KB searches. Only set if the caller
+        # didn't already provide one explicitly through base_input.
+        if self._opts.scope and "scope" not in computed_base:
+            computed_base["scope"] = dict(self._opts.scope)
         if computed_base:
             envelope["base_input"] = computed_base
         await self._ws.send(json.dumps(envelope))
