@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://daguito.com" target="_blank">
-    <img src="https://raw.githubusercontent.com/daguitocontact-lang/daguito-python/main/assets/logo.png" alt="Daguito" width="160" />
+    <img src="https://raw.githubusercontent.com/daguitocontact-lang/python-sdk/main/assets/logo.png" alt="Daguito" width="160" />
   </a>
 </p>
 
@@ -16,7 +16,7 @@
 <p align="center">
   <a href="https://pypi.org/project/daguito-sdk/"><img src="https://img.shields.io/pypi/v/daguito-sdk.svg?style=flat-square&color=0a0a0a" alt="pypi version" /></a>
   <a href="https://pypi.org/project/daguito-sdk/"><img src="https://img.shields.io/pypi/dm/daguito-sdk.svg?style=flat-square&color=0a0a0a" alt="pypi downloads" /></a>
-  <a href="https://github.com/daguitocontact-lang/daguito-python/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/daguito-sdk.svg?style=flat-square&color=0a0a0a" alt="license" /></a>
+  <a href="https://github.com/daguitocontact-lang/python-sdk/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/daguito-sdk.svg?style=flat-square&color=0a0a0a" alt="license" /></a>
   <a href="https://pypi.org/project/daguito-sdk/"><img src="https://img.shields.io/pypi/pyversions/daguito-sdk.svg?style=flat-square&color=0a0a0a" alt="python versions" /></a>
 </p>
 
@@ -406,8 +406,8 @@ from daguito import (
 - 🌐 [daguito.com](https://daguito.com) — landing & dashboard
 - 📚 [docs.daguito.com](https://docs.daguito.com) — full API and flow reference
 - 💬 [TypeScript SDK](https://github.com/daguitocontact-lang/js-sdk) — same surface, different runtime
-- 🐛 [Issues](https://github.com/daguitocontact-lang/daguito-python/issues) — bug reports & feature requests
-- 📦 [Source](https://github.com/daguitocontact-lang/daguito-python) — Python SDK repo
+- 🐛 [Issues](https://github.com/daguitocontact-lang/python-sdk/issues) — bug reports & feature requests
+- 📦 [Source](https://github.com/daguitocontact-lang/python-sdk) — Python SDK repo
 
 ## License
 
