@@ -48,11 +48,14 @@ from .types import (
     NodeStartedEvent,
     NodeTokenEvent,
     ReadyEvent,
+    ToolProgressEvent,
+    ToolProgressResource,
     WebhookStreamOptions,
     form_response_message,
     image_multi_message,
     image_url_message,
     media_key_message,
+    parse_tool_progress,
     text_message,
 )
 from .webhook_session import (
@@ -89,6 +92,9 @@ __all__ = [
     "NodeCompletedEvent",
     "NodeFailedEvent",
     "NodeEmitEvent",
+    "ToolProgressEvent",
+    "ToolProgressResource",
+    "parse_tool_progress",
     "FlowCompletedEvent",
     "FlowFailedEvent",
     "ErrorEvent",
@@ -112,4 +118,4 @@ __all__ = [
     "Listener",
 ]
 
-__version__ = "0.3.5"
+__version__ = "0.3.6"

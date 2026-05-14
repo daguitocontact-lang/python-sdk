@@ -146,6 +146,77 @@ class NodeEmitEvent:
     data: dict[str, Any] = field(default_factory=dict)
 
 
+# ─── Tool progress (rides on node.emit with kind="tool_progress") ─────────
+#
+# The server emits granular telemetry for long-running tools (web search,
+# media description, KB indexing, …) so UIs can render "searching…",
+# "analyzing image…", "indexing document…" without scraping token streams.
+# The wire envelope is `node.emit` and the payload's `kind` is the literal
+# string "tool_progress" — these dataclasses are pure type sugar over the
+# `NodeEmitEvent.data` dict.
+
+
+@dataclass
+class ToolProgressResource:
+    kind: str | None = None
+    name: str | None = None
+    media_key: str | None = None
+    url: str | None = None
+
+
+@dataclass
+class ToolProgressEvent:
+    tool: str
+    stage: str
+    message: str
+    progress: float | None = None
+    resource: ToolProgressResource | None = None
+    trace_id: str | None = None
+    attempt: int | None = None
+
+
+def parse_tool_progress(data: dict[str, Any]) -> ToolProgressEvent | None:
+    """Narrow a `NodeEmitEvent.data` dict into a typed `ToolProgressEvent`.
+
+    Returns None when `data['kind']` is not `'tool_progress'`, so callers
+    can use it as a discriminator inside their `node.emit` handler.
+    """
+    if not isinstance(data, dict) or data.get("kind") != "tool_progress":
+        return None
+
+    raw_resource = data.get("resource")
+    resource: ToolProgressResource | None = None
+    if isinstance(raw_resource, dict):
+        resource = ToolProgressResource(
+            kind=_opt_str(raw_resource.get("kind")),
+            name=_opt_str(raw_resource.get("name")),
+            media_key=_opt_str(raw_resource.get("media_key")),
+            url=_opt_str(raw_resource.get("url")),
+        )
+
+    progress_raw = data.get("progress")
+    progress: float | None = (
+        float(progress_raw) if isinstance(progress_raw, (int, float)) else None
+    )
+
+    attempt_raw = data.get("attempt")
+    attempt: int | None = attempt_raw if isinstance(attempt_raw, int) else None
+
+    return ToolProgressEvent(
+        tool=str(data.get("tool", "")),
+        stage=str(data.get("stage", "")),
+        message=str(data.get("message", "")),
+        progress=progress,
+        resource=resource,
+        trace_id=_opt_str(data.get("trace_id")),
+        attempt=attempt,
+    )
+
+
+def _opt_str(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
 @dataclass
 class FlowCompletedEvent:
     elapsed_ms: int
