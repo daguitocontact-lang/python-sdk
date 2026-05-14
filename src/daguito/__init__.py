@@ -63,6 +63,7 @@ from .webhook_session import (
     run_webhook_sync,
 )
 from .webhook_stream_session import WebhookStreamSession
+from .upload import UploadError, UploadInput, UploadKind, UploadResult, upload_file
 
 __all__ = [
     # one-shot
@@ -100,9 +101,15 @@ __all__ = [
     "SearchHit",
     "SearchResult",
     "KnowledgeError",
+    # upload (presigned PUT for media attachments — mirrors run_webhook shape)
+    "upload_file",
+    "UploadInput",
+    "UploadResult",
+    "UploadError",
+    "UploadKind",
     # event emitter
     "Emitter",
     "Listener",
 ]
 
-__version__ = "0.3.3"
+__version__ = "0.3.4"
