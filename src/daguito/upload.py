@@ -32,7 +32,7 @@ from ._url import join_http
 
 # The message kinds that accept an attachment (mirrors `@daguito/core`
 # `MESSAGE_KINDS`). text / voice_stream / rich never upload anything.
-UploadKind = Literal["image", "audio", "document"]
+UploadKind = Literal["image", "audio", "document", "video"]
 
 
 @dataclass

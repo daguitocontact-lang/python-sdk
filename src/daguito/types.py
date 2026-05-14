@@ -80,7 +80,7 @@ def image_multi_message(
 
 
 def media_key_message(
-    kind: Literal["image", "audio", "document"],
+    kind: Literal["image", "audio", "document", "video"],
     media_key: str,
     mime_type: str,
     size_bytes: int,

@@ -9,8 +9,7 @@
 <p align="center">
   Official Python SDK for the
   <a href="https://daguito.com">Daguito</a>
-  conversational AI platform —
-  text, voice, image, and multimodal agent flows.
+  conversational AI platform — text, voice, image, audio, document and video agent flows.
 </p>
 
 <p align="center">
@@ -22,7 +21,7 @@
 
 ---
 
-Async-first. Python 3.10+. Built on `httpx` + `websockets`. Type-hinted everywhere. Mirrors the [TypeScript SDK](https://github.com/daguitocontact-lang/js-sdk) feature-for-feature.
+Async-first, Python 3.10+, built on `httpx` + `websockets`. Fully type-hinted. Mirrors the [TypeScript SDK](https://github.com/daguitocontact-lang/js-sdk) feature-for-feature.
 
 ```bash
 uv add daguito-sdk
@@ -30,25 +29,29 @@ uv add daguito-sdk
 pip install daguito-sdk
 ```
 
-> Package name is `daguito-sdk`. Import name is `daguito` — same pattern as `scikit-learn` / `sklearn`.
+> Package name is `daguito-sdk`. Import name is `daguito` (same pattern as `scikit-learn` / `sklearn`).
 
-## What you get
+## What's in the box
 
-- **`run_webhook()`** — one-shot HTTP call to a webhook flow. Wait, get the result.
-- **`WebhookStreamSession`** — long-lived WebSocket for streaming flows. Token streaming, node lifecycle, custom emits. `async with`-friendly, plus `async for event in session.events()`.
-- **`@session.tool(...)`** — register OpenAI-style tools the LLM can invoke. Your handler runs locally, its return value is fed back to the model as the tool result.
-- **`scope={...}` on the session** — server-enforced metadata filter for KB searches. Isolates a conversation to its own ingested files without trusting the LLM with UUIDs.
-- **`KnowledgeSession`** — Knowledge Base ingest + search over the same `sk_dgt_...` API key as the dashboard.
-- **Typed event payloads** — every WS event is a dataclass (`NodeTokenEvent`, `FlowCompletedEvent`, etc.) so editors autocomplete attributes.
+| Symbol                      | Use it for                                                              |
+| --------------------------- | ----------------------------------------------------------------------- |
+| `run_webhook()`             | One-shot HTTP call to a flow. Wait, get the result.                     |
+| `WebhookStreamSession`      | Long-lived WebSocket. Streams tokens, node lifecycle, custom emits.     |
+| `upload_file()`             | Presigned upload for image / audio / document / video attachments.     |
+| `@session.tool(...)`        | Register OpenAI-style function tools the LLM can invoke on your code.   |
+| `session.scope = {...}`     | Server-enforced metadata filter for KB searches (data isolation).       |
+| `KnowledgeSession`          | Ingest + search a Knowledge Base with a `sk_dgt_...` org key.           |
+
+Every WebSocket event is a typed dataclass (`NodeTokenEvent`, `FlowCompletedEvent`, `ToolProgressEvent`, …) so editors autocomplete.
 
 ## Authentication
 
-| Surface                  | Auth                  | Best for                                            |
-| ------------------------ | --------------------- | --------------------------------------------------- |
-| Webhook (`sk_wh_...`)    | Token issued per-flow | Server-to-server, FastAPI/Django backends, scripts  |
-| Knowledge (`sk_dgt_...`) | Org-scoped API key    | Ingest + search against your own KB                 |
+| Surface                  | Key shape       | Best for                                        |
+| ------------------------ | --------------- | ----------------------------------------------- |
+| Webhook                  | `sk_wh_...`     | Server-to-server, your own backend, scripts     |
+| Knowledge Base           | `sk_dgt_...`    | Ingest + search against your own KB             |
 
-Create webhooks and API keys from your Daguito dashboard.
+Create both from the Daguito dashboard.
 
 ## Quick start
 
@@ -62,29 +65,20 @@ async def main():
     result = await run_webhook(WebhookRunInput(
         api_url="https://api.daguito.com",
         token="sk_wh_...",
-        input={"question": "What is the price of BTC?"},
+        input={"question": "What is the capital of France?"},
     ))
     print(result.output)
 
 asyncio.run(main())
 ```
 
-Need a synchronous flavor for scripts that aren't in an event loop? Use `run_webhook_sync`:
+Need a sync flavor (scripts, Jupyter)? `run_webhook_sync(...)` has the same signature.
 
-```python
-from daguito import run_webhook_sync, WebhookRunInput
-result = run_webhook_sync(WebhookRunInput(api_url=..., token=..., input={...}))
-```
-
-### Streaming webhook (text agent)
+### Streaming a chat agent
 
 ```python
 import asyncio
-from daguito import (
-    WebhookStreamSession,
-    WebhookStreamOptions,
-    text_message,
-)
+from daguito import WebhookStreamSession, WebhookStreamOptions, text_message
 
 async def main():
     opts = WebhookStreamOptions(
@@ -93,169 +87,131 @@ async def main():
         token="sk_wh_...",
     )
     async with WebhookStreamSession(opts) as session:
-        await session.send(text_message("Hola, ¿qué tal?"))
+        await session.send(text_message("Hello!"))
 
         async for event_type, payload in session.events():
             if event_type == "node.token":
                 print(payload.text, end="", flush=True)
-            elif event_type == "node.completed":
-                print(f"\n✓ {payload.node_id} ({payload.duration_ms}ms)")
             elif event_type == "flow.completed":
-                print(f"\nDone in {payload.elapsed_ms}ms")
                 break
             elif event_type == "flow.failed":
-                print(f"\nFlow failed: {payload.error}")
+                print(f"\nfailed: {payload.error}")
                 break
 
 asyncio.run(main())
 ```
 
-Prefer callbacks? You can also `session.on("node.token", listener)` like the JS SDK — but async iteration is the idiomatic Python pattern and plays nicely with FastAPI's `StreamingResponse`.
+Prefer callbacks? `session.on("node.token", listener)` also works. Async iteration is the idiomatic Python pattern and slots into FastAPI's `StreamingResponse`.
 
-### Streaming with images
+### Sending attachments
+
+Two paths — pick whichever fits your stack.
+
+**Pre-uploaded media key** (you handle the upload yourself, or use `upload_file()`):
 
 ```python
-from daguito import image_url_message, image_multi_message, media_key_message
+from daguito import upload_file, UploadInput, media_key_message
 
-# Hosted on a public URL (works on streaming-webhook surface)
-await session.send(image_url_message(image_url="https://...", text="Describe this"))
+uploaded = await upload_file(UploadInput(
+    api_url="https://api.daguito.com",
+    webhook_id="wh_abc123",
+    token="sk_wh_...",
+    kind="document",         # "image" | "audio" | "document" | "video"
+    path="/tmp/report.pdf",
+))
 
-# Multiple images
-await session.send(image_multi_message(image_urls=[url1, url2], text="Compare"))
-
-# Pre-uploaded (you handled the upload elsewhere)
 await session.send(media_key_message(
-    kind="image",
-    media_key="media/.../abc.jpg",
-    mime_type="image/jpeg",
-    size_bytes=234_567,
+    kind="document",
+    media_key=uploaded.media_key,
+    mime_type="application/pdf",
+    size_bytes=uploaded.size_bytes,
+    text="Summarize this report",
 ))
 ```
 
-> Need to upload a `File` directly from Python? Upload it through your own backend's presigned URL endpoint, then pass the `media_key` to `media_key_message()`. The streaming surface does not mint presigned URLs.
-
-### Per-conversation scope (server-enforced KB filter)
-
-When you ingest documents that belong to a specific conversation, patient, or workspace, you usually want the chat to only see chunks that match. Pass a `scope` on the session and Daguito **forces** every `search_knowledge_base` call to apply it as a metadata filter — server-side, before Milvus runs the search. The LLM never sees the scope values, so it can't accidentally widen the search, hallucinate a UUID, or leak data across conversations.
+**Public image URL** (no upload, fastest path):
 
 ```python
-import uuid
-from daguito import (
-    WebhookStreamSession,
-    WebhookStreamOptions,
-    KnowledgeSession,
-    KnowledgeSessionOptions,
-    IngestTextInput,
-    text_message,
-)
+from daguito import image_url_message, image_multi_message
 
-consultation_uuid = str(uuid.uuid4())
+await session.send(image_url_message(
+    image_url="https://example.com/photo.jpg",
+    text="What's in this image?",
+))
 
-# 1. Ingest tagged with the scope key
-async with KnowledgeSession(KnowledgeSessionOptions(...)) as kb:
-    await kb.ingest_text(IngestTextInput(
-        text=lab_results_text,
-        metadata={"consultation_uuid": consultation_uuid, "kind": "lab"},
-    ))
+await session.send(image_multi_message(
+    image_urls=["https://example.com/a.jpg", "https://example.com/b.jpg"],
+    text="Compare these two",
+))
+```
 
-# 2. Open the chat scoped to that consultation
+Video and audio are handled the same way as document — upload, then `media_key_message(kind="video", ...)`. The backend extracts a transcript and visual highlights and surfaces them to the agent automatically.
+
+### Per-session scope (server-enforced KB filter)
+
+When your KB holds data for many users / workspaces / documents, you want each chat to only see chunks tagged with the right key. Set `scope` on the session — Daguito **forces** every KB search the agent makes to apply it as a metadata filter, server-side. The LLM never sees the values, so it can't widen the search or leak across tenants.
+
+```python
+from daguito import WebhookStreamOptions, WebhookStreamSession, text_message
+
 opts = WebhookStreamOptions(
     api_url="https://api.daguito.com",
     webhook_id="wh_abc123",
     token="sk_wh_...",
-    scope={"consultation_uuid": consultation_uuid},
+    scope={"workspace_id": "ws_42", "document_id": "doc_abc"},
 )
 
 async with WebhookStreamSession(opts) as session:
-    await session.send(text_message("¿Cómo están las bilirrubinas?"))
-    # → search_knowledge_base is forced to filter by consultation_uuid
-    # → the LLM can't see chunks from other consultations
+    await session.send(text_message("What does the document say about X?"))
 ```
 
-Scope values must be primitives (`str`, `int`, `float`, `bool`). You can stack multiple keys at once (`{"consultation_uuid": "...", "tenant_id": "..."}`) — every search is filtered by all of them.
+Make sure your ingest writes the same keys into `metadata` — that's the join. Scope values must be primitives (`str`, `int`, `float`, `bool`).
 
-The LLM can still pass its own `metadata_filter` (e.g. to narrow by `document_type`), but **server scope always wins on key conflict** — a hallucinated value can't widen the result set.
+### Client-side tools (function calling)
 
-### Client-side tools (OpenAI-style function calling)
-
-Register tools that the LLM can invoke during a session. Your Python handler
-runs locally, and its return value is fed back to the model as the tool
-result — so the LLM continues its reply with the actual data your code
-produced, not a placeholder.
+Tools you register on the session run locally — Python code, in your process — and their return value is fed back to the LLM as the tool result. Same shape as OpenAI function calling.
 
 ```python
-import asyncio
-from daguito import (
-    WebhookStreamSession,
-    WebhookStreamOptions,
-    text_message,
+@session.tool(
+    name="get_weather",
+    description="Get the current weather for a city.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "city": {"type": "string"},
+            "units": {"type": "string", "enum": ["c", "f"]},
+        },
+        "required": ["city"],
+    },
 )
-
-async def main():
-    opts = WebhookStreamOptions(
-        api_url="https://api.daguito.com",
-        webhook_id="wh_abc123",
-        token="sk_wh_...",
-    )
-    async with WebhookStreamSession(opts) as session:
-
-        @session.tool(
-            name="update_soap_section",
-            description="Updates a SOAP section with new clinical information.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "section": {
-                        "type": "string",
-                        "enum": ["subjective", "objective", "assessment", "plan"],
-                    },
-                    "subsection": {"type": "string"},
-                    "content": {"type": "string"},
-                    "action": {
-                        "type": "string",
-                        "enum": ["add", "update", "append"],
-                    },
-                },
-                "required": ["section", "subsection", "content", "action"],
-            },
-        )
-        async def update_soap(args: dict) -> dict:
-            # Run your business logic here — write to your DB, call an API,
-            # whatever. The returned value goes back to the LLM as the
-            # tool result.
-            soap_id = await db.update_soap(args)
-            return {"success": True, "soap_id": soap_id}
-
-        await session.send(text_message(
-            "Add this to the plan: paracetamol 500mg every 8 hours for 5 days."
-        ))
-
-        async for event_type, payload in session.events():
-            if event_type == "node.token":
-                print(payload.text, end="", flush=True)
-            elif event_type == "flow.completed":
-                break
-
-asyncio.run(main())
+async def get_weather(args: dict) -> dict:
+    data = await my_weather_api.fetch(args["city"], args.get("units", "c"))
+    return {"temp": data.temp, "conditions": data.summary}
 ```
 
-Tools follow the **exact same shape as OpenAI function calling**
-(`name`, `description`, `parameters` as a JSON Schema). They're sent to the
-flow on every turn via `base_input.client_tools`, merged with whatever
-tools the flow already declared statically, and the LLM picks the best
-one for the job.
+Handler can be sync or async. Raise an exception to surface a failure to the LLM. Tools are merged with whatever the flow already declares server-side — the LLM picks the best fit.
 
-The handler can be sync or async. Throw an exception to surface a failure
-to the LLM with a typed error.
+### Tool progress events (data-only)
 
-### Knowledge Search
+When a server-side tool runs (KB search, media analysis, web search), the engine emits `tool_progress` events. They're **data-only** — no localized strings — so your client renders whatever copy/UI you want.
+
+```python
+from daguito import parse_tool_progress
+
+async for event_type, payload in session.events():
+    if event_type == "node.emit":
+        progress = parse_tool_progress(payload)
+        if progress:
+            print(f"[{progress.tool}] {progress.stage}", progress.resource)
+```
+
+`progress.tool`, `progress.stage`, `progress.resource`, `progress.result`, `progress.trace_id`, `progress.attempt` — render however you like.
+
+### Knowledge Base
 
 ```python
 from daguito import (
-    KnowledgeSession,
-    KnowledgeSessionOptions,
-    IngestTextInput,
-    SearchInput,
+    KnowledgeSession, KnowledgeSessionOptions, IngestTextInput, SearchInput,
 )
 
 opts = KnowledgeSessionOptions(
@@ -265,23 +221,21 @@ opts = KnowledgeSessionOptions(
 )
 
 async with KnowledgeSession(opts) as kb:
-    # Ingest text — chunks + embeds + indexes server-side
     await kb.ingest_text(IngestTextInput(
-        text="MacBook Pro M4 Max with 64GB RAM...",
-        metadata={"category": "laptop", "price_usd": 3499},
+        text="Daguito is a conversational AI platform...",
+        metadata={"workspace_id": "ws_42", "kind": "doc"},
     ))
 
-    # Search — vector + keyword hybrid
-    result = await kb.search(SearchInput(query="laptops para video", top_k=3))
+    result = await kb.search(SearchInput(query="what is daguito", top_k=5))
     for hit in result.hits:
-        print(hit.score, hit.content, hit.metadata)
+        print(hit.score, hit.content)
 ```
 
-The `api_key` controls scopes. Mint one from the dashboard with `kb:read` and/or `kb:write` actions, optionally limited to specific KBs.
+The `api_key` controls scopes (`kb:read`, `kb:write`). Mint one in the dashboard and optionally restrict to specific KBs.
 
-## FastAPI streaming example
+## FastAPI streaming (SSE)
 
-Stream tokens from a Daguito flow straight to the browser via Server-Sent Events:
+Stream tokens from a Daguito flow straight to the browser:
 
 ```python
 from fastapi import FastAPI
@@ -299,14 +253,9 @@ async def chat(message: str):
             token="sk_wh_...",
         )) as session:
             await session.send(text_message(message))
-
             async for event_type, payload in session.events():
                 if event_type == "node.token":
                     yield f"data: {payload.text}\n\n"
-                elif event_type == "node.emit" and payload.kind == "tool_call":
-                    # The agent invoked a tool the client owns. Forward it so
-                    # the frontend (or this backend) can execute it locally.
-                    yield f"event: tool_call\ndata: {payload.data}\n\n"
                 elif event_type == "flow.completed":
                     yield "event: done\ndata: ok\n\n"
                     return
@@ -314,17 +263,7 @@ async def chat(message: str):
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 ```
 
-## Runtime support
-
-| Module    | Python 3.10+ | asyncio | Notes                                       |
-| --------- | ------------ | ------- | ------------------------------------------- |
-| `daguito` | ✅           | ✅      | `httpx` + `websockets`. No native deps.     |
-
-Works on **CPython** and **PyPy**. Plays well with FastAPI, Starlette, aiohttp, Django Channels, anyio-based stacks, and any async runtime. The synchronous `run_webhook_sync()` helper is provided for scripts and Jupyter notebooks that don't have a running event loop.
-
 ## Event reference
-
-### `WebhookStreamSession` events
 
 | Event            | Payload class         | When                          |
 | ---------------- | --------------------- | ----------------------------- |
@@ -334,80 +273,52 @@ Works on **CPython** and **PyPy**. Plays well with FastAPI, Starlette, aiohttp, 
 | `node.token`     | `NodeTokenEvent`      | LLM streaming token           |
 | `node.completed` | `NodeCompletedEvent`  | Node finished                 |
 | `node.failed`    | `NodeFailedEvent`     | Node errored                  |
-| `node.emit`      | `NodeEmitEvent`       | Custom telemetry from a node  |
+| `node.emit`      | `NodeEmitEvent`       | Custom telemetry (tool progress, intent emits, …) |
 | `flow.completed` | `FlowCompletedEvent`  | Engine finished               |
 | `flow.failed`    | `FlowFailedEvent`     | Engine errored                |
 | `error`          | `ErrorEvent`          | Protocol-level error          |
 
-Each payload is a Python dataclass — fields are typed, so editors autocomplete and type checkers catch typos.
+Every payload is a dataclass — fields are typed, so `mypy` / `pyright` catch typos.
 
-## Multimodal cheat sheet
+## Modality support
 
-| Modality                        | Webhook stream            | Knowledge ingest                |
-| ------------------------------- | ------------------------- | ------------------------------- |
-| `text`                          | ✅                        | ✅ (`ingest_text`)              |
-| `image` (URL)                   | ✅ (`image_url_message`)  | extract OCR text first          |
-| `image` (pre-uploaded mediaKey) | ✅ (`media_key_message`)  | —                               |
-| `image-multi`                   | ✅                        | —                               |
-| `audio` (mediaKey)              | ✅                        | transcribe first, ingest text   |
-| `document` (mediaKey)           | ✅                        | extract text first, ingest text |
-| `form-response`                 | ✅                        | —                               |
-| Knowledge Base search           | ✅ via flow tool          | ✅ (`KnowledgeSession.search`)  |
+| Modality                       | Streaming session                       | Knowledge ingest                 |
+| ------------------------------ | --------------------------------------- | -------------------------------- |
+| Text                           | `text_message(...)`                     | `ingest_text(...)`               |
+| Image (public URL)             | `image_url_message(...)`                | extract text first               |
+| Image (uploaded)               | `media_key_message(kind="image", ...)`  | extract text first               |
+| Audio                          | `media_key_message(kind="audio", ...)`  | transcribe first, ingest text    |
+| Document                       | `media_key_message(kind="document", ...)`| extract text first, ingest text |
+| Video                          | `media_key_message(kind="video", ...)`  | extract transcript + scenes      |
+| Form response                  | `form_response_message(...)`            | —                                |
+| Knowledge Base search          | server-side tool the LLM calls          | `KnowledgeSession.search(...)`   |
 
-The Python SDK does not handle file extraction (PDF → text, image → OCR, audio → transcript). Use whatever tool fits your stack (Azure Document Intelligence, AssemblyAI, Tesseract, etc.) and feed the resulting text into `KnowledgeSession.ingest_text()`. The Daguito flow's `search_knowledge_base` tool then surfaces it to the model.
+## Runtime support
 
-## Testing from a script
+| Module    | Python 3.10+ | asyncio | Notes                                  |
+| --------- | ------------ | ------- | -------------------------------------- |
+| `daguito` | ✅           | ✅      | `httpx` + `websockets`. No native deps |
 
-The fastest way to verify your install works is to point the streaming session at any flow and dump events to stdout:
-
-```python
-import asyncio
-import os
-from daguito import WebhookStreamSession, WebhookStreamOptions, text_message
-
-async def main():
-    opts = WebhookStreamOptions(
-        api_url=os.environ["DAGUITO_API_URL"],
-        webhook_id=os.environ["DAGUITO_WEBHOOK_ID"],
-        token=os.environ["DAGUITO_WEBHOOK_TOKEN"],
-    )
-    async with WebhookStreamSession(opts) as session:
-        await session.send(text_message("ping"))
-        async for event_type, payload in session.events():
-            print(event_type, payload)
-            if event_type in ("flow.completed", "flow.failed"):
-                break
-
-asyncio.run(main())
-```
-
-```bash
-DAGUITO_API_URL=https://api.daguito.com \
-DAGUITO_WEBHOOK_ID=wh_abc123 \
-DAGUITO_WEBHOOK_TOKEN=sk_wh_... \
-python smoke.py
-```
+Works on CPython and PyPy. Plays well with FastAPI, Starlette, aiohttp, Django Channels, anyio-based stacks. The `run_webhook_sync()` helper covers scripts and notebooks without an event loop.
 
 ## Typing
 
-Every public symbol has full type hints, including the dataclass payloads emitted by streaming events. The package ships a `py.typed` marker so `mypy` / `pyright` pick the types up automatically.
+Every public symbol has full type hints. The package ships a `py.typed` marker so `mypy` and `pyright` pick everything up automatically.
 
 ```python
 from daguito import (
-    WebhookStreamSession,
-    WebhookStreamOptions,
-    NodeTokenEvent,
-    FlowCompletedEvent,
+    WebhookStreamSession, WebhookStreamOptions,
+    NodeTokenEvent, FlowCompletedEvent, ToolProgressEvent,
 )
 ```
 
 ## Resources
 
 - 🌐 [daguito.com](https://daguito.com) — landing & dashboard
-- 📚 [docs.daguito.com](https://docs.daguito.com) — full API and flow reference
+- 📚 [docs.daguito.com](https://docs.daguito.com) — full API + flow reference
 - 💬 [TypeScript SDK](https://github.com/daguitocontact-lang/js-sdk) — same surface, different runtime
-- 🐛 [Issues](https://github.com/daguitocontact-lang/python-sdk/issues) — bug reports & feature requests
-- 📦 [Source](https://github.com/daguitocontact-lang/python-sdk) — Python SDK repo
+- 🐛 [Issues](https://github.com/daguitocontact-lang/python-sdk/issues)
+- 📦 [Source](https://github.com/daguitocontact-lang/python-sdk)
 
 ## License
 
