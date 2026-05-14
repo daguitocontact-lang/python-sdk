@@ -288,11 +288,14 @@ class WebhookStreamSession:
         # media which travels on `media`.
         kind = message.get("kind", "text")
         if kind != "form-response" and "media_key" in message:
+            # MediaRefSchema on the server uses `key` (not `media_key`); the
+            # SDK helper takes `media_key` as a friendlier alias and we
+            # rename it here at the wire boundary.
             return {
                 "kind": kind,
                 "text": message.get("text"),
                 "media": {
-                    "media_key": message["media_key"],
+                    "key": message["media_key"],
                     "mime_type": message["mime_type"],
                     "size_bytes": message["size_bytes"],
                 },
