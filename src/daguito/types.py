@@ -166,9 +166,12 @@ class ToolProgressResource:
 
 @dataclass
 class ToolProgressEvent:
+    """Data-only progress event. Consumers compose user-facing strings from
+    (tool, stage, resource, result) via their own i18n.
+    """
+
     tool: str
     stage: str
-    message: str
     progress: float | None = None
     resource: ToolProgressResource | None = None
     trace_id: str | None = None
@@ -205,7 +208,6 @@ def parse_tool_progress(data: dict[str, Any]) -> ToolProgressEvent | None:
     return ToolProgressEvent(
         tool=str(data.get("tool", "")),
         stage=str(data.get("stage", "")),
-        message=str(data.get("message", "")),
         progress=progress,
         resource=resource,
         trace_id=_opt_str(data.get("trace_id")),
