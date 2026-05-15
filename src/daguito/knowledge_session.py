@@ -13,6 +13,7 @@ from urllib.parse import quote
 
 import httpx
 
+from ._client_headers import client_headers
 from ._url import join_http
 
 
@@ -91,6 +92,7 @@ class KnowledgeSession:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self._opts.api_key}",
+                **client_headers(),
             },
         )
         return self
@@ -165,6 +167,7 @@ class KnowledgeSession:
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {self._opts.api_key}",
+                    **client_headers(),
                 },
             ) as client:
                 return await self._do_post(client, url, body)

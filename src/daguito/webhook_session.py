@@ -16,6 +16,7 @@ from urllib.parse import quote
 
 import httpx
 
+from ._client_headers import client_headers
 from ._url import join_http
 
 
@@ -56,7 +57,7 @@ async def run_webhook(input: WebhookRunInput) -> WebhookRunResult:
             response = await client.post(
                 url,
                 json=body,
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", **client_headers()},
             )
     except httpx.HTTPError as err:
         raise WebhookError(str(err) or "network error") from err

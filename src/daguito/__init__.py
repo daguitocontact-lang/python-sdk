@@ -26,6 +26,18 @@ Public surface mirrors @daguito/sdk (TypeScript). See README.md for details.
 
 from __future__ import annotations
 
+from ._admin_http import DaguitoError
+from .admin_account_keys import AccountKeysService
+from .admin_budgets import BudgetsService
+from .admin_public_keys import PublicKeysService
+from .admin_types import (
+    AccountKey,
+    AccountKeyCreated,
+    OrgBudget,
+    PublicKey,
+    PublicKeyCreated,
+)
+from .client import Daguito
 from .emitter import Emitter, Listener
 from .knowledge_session import (
     IngestTextInput,
@@ -66,6 +78,13 @@ from .webhook_session import (
     run_webhook_sync,
 )
 from .webhook_stream_session import WebhookStreamSession
+from .audio_stream_session import (
+    AudioStreamError,
+    AudioStreamOptions,
+    AudioStreamReady,
+    AudioStreamSession,
+    SUPPORTED_CODECS,
+)
 from .upload import UploadError, UploadInput, UploadKind, UploadResult, upload_file
 
 __all__ = [
@@ -78,6 +97,12 @@ __all__ = [
     # streaming
     "WebhookStreamSession",
     "WebhookStreamOptions",
+    # audio upstream (PCM/opus chunks → Daguito → STT internal)
+    "AudioStreamSession",
+    "AudioStreamOptions",
+    "AudioStreamReady",
+    "AudioStreamError",
+    "SUPPORTED_CODECS",
     # messages
     "text_message",
     "image_url_message",
@@ -116,6 +141,17 @@ __all__ = [
     # event emitter
     "Emitter",
     "Listener",
+    # admin client (programmatic key + budget management)
+    "Daguito",
+    "DaguitoError",
+    "AccountKey",
+    "AccountKeyCreated",
+    "PublicKey",
+    "PublicKeyCreated",
+    "OrgBudget",
+    "AccountKeysService",
+    "PublicKeysService",
+    "BudgetsService",
 ]
 
-__version__ = "0.3.8"
+__version__ = "0.4.0"
