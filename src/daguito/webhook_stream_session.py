@@ -35,6 +35,7 @@ from websockets.asyncio.client import ClientConnection, connect
 ToolHandler = Callable[[dict[str, Any]], Awaitable[Any]] | Callable[[dict[str, Any]], Any]
 T = TypeVar("T", bound=ToolHandler)
 
+from ._client_headers import append_client_query_params, client_headers
 from ._url import random_session_id, to_ws_url
 from .emitter import Emitter
 from .types import (
@@ -107,8 +108,14 @@ class WebhookStreamSession:
             f"/v1/webhooks/{self._opts.webhook_id}/stream",
             {"token": self._opts.token},
         )
+        url = append_client_query_params(url)
         log.debug("connecting to %s", url)
-        self._ws = await connect(url, ping_interval=25, ping_timeout=20)
+        self._ws = await connect(
+            url,
+            ping_interval=25,
+            ping_timeout=20,
+            additional_headers=client_headers(),
+        )
         self._recv_task = asyncio.create_task(self._recv_loop(), name="daguito-stream-recv")
 
     async def close(self) -> None:

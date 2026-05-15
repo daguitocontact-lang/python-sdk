@@ -28,6 +28,7 @@ from typing import Literal
 
 import httpx
 
+from ._client_headers import client_headers
 from ._url import join_http
 
 # The message kinds that accept an attachment (mirrors `@daguito/core`
@@ -111,7 +112,7 @@ async def upload_file(inp: UploadInput) -> UploadResult:
         # client cannot upload a larger or different file than it announced.
         presign_resp = await client.post(
             presign_url,
-            headers={"Authorization": f"Bearer {inp.token}"},
+            headers={"Authorization": f"Bearer {inp.token}", **client_headers()},
             json={
                 "kind": inp.kind,
                 "mime_type": resolved_mime,
