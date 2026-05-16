@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from .admin_account_keys import AccountKeysService, make_client_factory
 from .admin_budgets import BudgetsService
+from .admin_flows import FlowsService
 from .admin_public_keys import PublicKeysService
 
 
@@ -40,3 +41,4 @@ class Daguito:
         self.account_keys = AccountKeysService(api_url, factory)
         self.public_keys = PublicKeysService(api_url, factory)
         self.budgets = BudgetsService(api_url, factory)
+        self.flows = FlowsService(api_url, factory)

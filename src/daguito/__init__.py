@@ -29,6 +29,7 @@ from __future__ import annotations
 from ._admin_http import DaguitoError
 from .admin_account_keys import AccountKeysService
 from .admin_budgets import BudgetsService
+from .admin_flows import FlowsService, ResolvedFlowWebhook
 from .admin_public_keys import PublicKeysService
 from .admin_types import (
     AccountKey,
@@ -152,6 +153,8 @@ __all__ = [
     "AccountKeysService",
     "PublicKeysService",
     "BudgetsService",
+    "FlowsService",
+    "ResolvedFlowWebhook",
 ]
 
-__version__ = "0.3.9"
+__version__ = "0.3.11"
