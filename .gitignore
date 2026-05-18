@@ -51,3 +51,7 @@ htmlcov/
 .env.local
 *.pem
 *.key
+
+# Local latency-probe scratch (not a deliverable)
+_lat_test.py
+_fatiga.pcm
