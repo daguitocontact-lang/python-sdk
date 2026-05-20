@@ -20,6 +20,7 @@ from .admin_account_keys import AccountKeysService, make_client_factory
 from .admin_budgets import BudgetsService
 from .admin_flows import FlowsService
 from .admin_public_keys import PublicKeysService
+from .templates import TemplatesService
 
 
 class Daguito:
@@ -42,3 +43,4 @@ class Daguito:
         self.public_keys = PublicKeysService(api_url, factory)
         self.budgets = BudgetsService(api_url, factory)
         self.flows = FlowsService(api_url, factory)
+        self.templates = TemplatesService(api_url, factory)

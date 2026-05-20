@@ -31,6 +31,16 @@ from .admin_account_keys import AccountKeysService
 from .admin_budgets import BudgetsService
 from .admin_flows import FlowsService, ResolvedFlowWebhook
 from .admin_public_keys import PublicKeysService
+from .templates import (
+    TemplateFieldDetail,
+    TemplateFieldType,
+    TemplatePreviewExample,
+    TemplatePreviewResult,
+    TemplatePreviewWarning,
+    TemplateSchema,
+    TemplatesService,
+    TranscriptOrigin,
+)
 from .admin_types import (
     AccountKey,
     AccountKeyCreated,
@@ -155,6 +165,15 @@ __all__ = [
     "BudgetsService",
     "FlowsService",
     "ResolvedFlowWebhook",
+    # templates
+    "TemplatesService",
+    "TemplateFieldDetail",
+    "TemplateFieldType",
+    "TemplatePreviewExample",
+    "TemplatePreviewResult",
+    "TemplatePreviewWarning",
+    "TemplateSchema",
+    "TranscriptOrigin",
 ]
 
-__version__ = "0.3.11"
+__version__ = "0.3.13"
