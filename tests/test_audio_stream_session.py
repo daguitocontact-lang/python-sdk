@@ -236,5 +236,153 @@ class SendAudioTest(unittest.TestCase):
         asyncio.run(run())
 
 
+class AutoReconnectTest(unittest.TestCase):
+    """Server drops the socket mid-session — the SDK must reopen it
+    transparently, reusing the same session_id so the server-side Redis
+    stream key stays consistent. send_audio() during the gap drops chunks
+    silently instead of throwing."""
+
+    def setUp(self) -> None:
+        self._real_connect = audio_mod.connect
+
+    def tearDown(self) -> None:
+        _restore_connect(self._real_connect)
+
+    def test_reconnects_after_unexpected_drop(self) -> None:
+        # Two fake sockets — the first one drops after one chunk, the
+        # second one accepts the rest. We assert both saw the same
+        # session_id in the URL.
+        urls: list[str] = []
+        sockets: list[_FakeWS] = []
+
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWS:
+            urls.append(url)
+            ws = _FakeWS(incoming=[json.dumps({"type": "ready", "session_key": "k", "codec": "pcm16"})])
+            sockets.append(ws)
+            return ws
+
+        _patch_connect(fake_connect)
+
+        async def run() -> None:
+            opts = AudioStreamOptions(
+                api_url="https://api.example.com",
+                token="sk_wh_x",
+                session_id="resume-me",
+                codec="pcm16",
+                sample_rate=16_000,
+                auto_reconnect=True,
+            )
+            audio = AudioStreamSession(opts)
+            await audio.connect()
+            await audio.send_audio(b"\x01")
+            # Simulate the server going down: close the live socket. The
+            # SDK control loop sees ConnectionClosed → reconnect kicks in.
+            await sockets[0].close()
+            # Give the reconnect task time to run + handshake.
+            for _ in range(50):
+                if len(sockets) >= 2 and audio.ready is not None:
+                    break
+                await asyncio.sleep(0.02)
+            self.assertEqual(len(sockets), 2, "reconnect did not happen")
+            await audio.send_audio(b"\x02")
+            await audio.close()
+
+        asyncio.run(run())
+        # Both connect calls should have reused the same session_id.
+        self.assertEqual(len(urls), 2)
+        for u in urls:
+            self.assertIn("/v1/audio/resume-me", u)
+        # First socket got chunk \x01, second one got \x02. The drop
+        # between them did not surface as an exception.
+        self.assertEqual(sockets[0].sent_binary, [b"\x01"])
+        self.assertEqual(sockets[1].sent_binary, [b"\x02"])
+
+    def test_send_audio_during_outage_does_not_raise(self) -> None:
+        sockets: list[_FakeWS] = []
+        slow_second: asyncio.Event = asyncio.Event()
+
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWS:
+            if len(sockets) == 1:
+                # Hold the second handshake until the test releases it,
+                # so we can prove send_audio doesn't throw during the gap.
+                await slow_second.wait()
+            ws = _FakeWS(incoming=[json.dumps({"type": "ready", "session_key": "k", "codec": "pcm16"})])
+            sockets.append(ws)
+            return ws
+
+        _patch_connect(fake_connect)
+
+        async def run() -> None:
+            opts = AudioStreamOptions(
+                api_url="https://api.example.com",
+                token="sk_wh_x",
+                session_id="resume-me",
+                codec="pcm16",
+                sample_rate=16_000,
+                auto_reconnect=True,
+            )
+            audio = AudioStreamSession(opts)
+            await audio.connect()
+            await sockets[0].close()
+            # We're now in the reconnect gap (second connect is blocked).
+            # send_audio must NOT raise — the caller's mic-pump loop has to
+            # survive a transient outage.
+            for _ in range(5):
+                await audio.send_audio(b"\x00")
+            slow_second.set()
+            for _ in range(50):
+                if len(sockets) >= 2 and audio.ready is not None:
+                    break
+                await asyncio.sleep(0.02)
+            await audio.close()
+
+        asyncio.run(run())
+        # The 5 chunks during the outage must have been dropped — none of
+        # them landed on the closed socket, and the second socket was not
+        # yet open when they were sent.
+        self.assertEqual(sockets[0].sent_binary, [])
+        self.assertEqual(sockets[1].sent_binary, [])
+
+    def test_close_during_reconnect_stops_loop(self) -> None:
+        sockets: list[_FakeWS] = []
+        attempt_count = 0
+        keep_failing: asyncio.Event = asyncio.Event()
+
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWS:
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count >= 2:
+                # Make every reconnect attempt fail so the loop spins
+                # until close() trips it.
+                if not keep_failing.is_set():
+                    raise audio_mod.AudioStreamError("simulated outage")
+            ws = _FakeWS(incoming=[json.dumps({"type": "ready", "session_key": "k", "codec": "pcm16"})])
+            sockets.append(ws)
+            return ws
+
+        _patch_connect(fake_connect)
+
+        async def run() -> None:
+            opts = AudioStreamOptions(
+                api_url="https://api.example.com",
+                token="sk_wh_x",
+                session_id="resume-me",
+                codec="pcm16",
+                sample_rate=16_000,
+                auto_reconnect=True,
+            )
+            audio = AudioStreamSession(opts)
+            await audio.connect()
+            await sockets[0].close()
+            await asyncio.sleep(0.05)
+            # Calling close() while reconnect is looping must not raise
+            # and must stop further attempts. (We don't assert the exact
+            # attempt count because backoff timing is sensitive to host load.)
+            await audio.close()
+
+        asyncio.run(run())
+        self.assertGreaterEqual(attempt_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

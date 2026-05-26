@@ -77,6 +77,11 @@ class AudioStreamOptions:
     # `ready` frame timeout. If the server hasn't accepted us by this, fail
     # the open so the caller doesn't block forever on a misrouted endpoint.
     ready_timeout_s: float = 10.0
+    # Reopen the socket transparently on unexpected drops. The upstream is
+    # idempotent (server XADDs each frame independently), so a brief outage
+    # only loses audio chunks pushed during the gap — which would have been
+    # stale by the time they reached the STT provider anyway.
+    auto_reconnect: bool = True
 
 
 @dataclass
@@ -191,18 +196,25 @@ class AudioStreamSession:
         """Push a single binary chunk. Caller decides chunk size — server
         rejects frames over 256 KiB so a sensible default is 20–100 ms of
         audio per chunk.
+
+        During an auto-reconnect window the socket is briefly unavailable.
+        We DROP the chunk silently in that case — by the time the reconnect
+        lands, the audio would be stale anyway, and surfacing the error to
+        the caller (a tight mic-pump loop) would tear down the consultation.
         """
         if self._closed:
             raise AudioStreamError("session is closed")
-        if self._ws is None:
+        if self._ws is None or not self._opened.is_set():
+            if self._opts.auto_reconnect and self._ready is not None:
+                return
             raise AudioStreamError("session is not connected")
-        if not self._opened.is_set():
-            # Treat sends-before-ready as a programmer error — surfacing it
-            # early is better than silently dropping the audio.
-            raise AudioStreamError("call connect() (or `async with`) before sending audio")
         try:
             await self._ws.send(bytes(chunk))
         except websockets.ConnectionClosed as exc:
+            if self._opts.auto_reconnect:
+                # The control loop's exception handler will start the
+                # reconnect; this single chunk is lost.
+                return
             self._closed = True
             raise AudioStreamError(f"connection closed: {exc}") from exc
 
@@ -219,6 +231,7 @@ class AudioStreamSession:
         ws = self._ws
         if ws is None:
             return
+        ended_unexpectedly = False
         try:
             async for frame in ws:
                 if isinstance(frame, (bytes, bytearray, memoryview)):
@@ -226,17 +239,88 @@ class AudioStreamSession:
                     continue
                 if isinstance(frame, str):
                     self._handle_text_frame(frame)
+            # async iterator completed without raising — the server closed
+            # the connection cleanly. Either we asked for it (`close()`) or
+            # the server went away; the post-loop check decides which.
+            ended_unexpectedly = not self._closed
         except websockets.ConnectionClosed:
-            pass
+            ended_unexpectedly = not self._closed
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            ended_unexpectedly = not self._closed
             log.exception("audio control loop error: %s", exc)
         finally:
             # Wake any caller blocked on connect() so they get an error
             # instead of hanging when the socket dies mid-handshake.
             if not self._opened.is_set():
                 self._opened.set()
+        if (
+            ended_unexpectedly
+            and self._opts.auto_reconnect
+            and self._ready is not None
+        ):
+            # Only retry AFTER a successful initial handshake — the first
+            # connect path raises through to the caller so they see real
+            # config errors (bad token, unsupported codec) instead of looping.
+            asyncio.create_task(self._reconnect_loop())
+
+    async def _reconnect_loop(self) -> None:
+        """Reopen the audio socket after an unexpected drop. Backoff 1s..30s.
+
+        Reuses the same session_id, so server-side XADDs continue to land on
+        the same Redis stream key — the running flow's `a_transcribe_stream`
+        node keeps consuming without noticing the seam.
+        """
+        ws = self._ws
+        self._ws = None
+        if ws is not None:
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        self._opened.clear()
+        attempt = 0
+        delay = 1.0
+        log.warning("daguito audio socket dropped — reconnecting (session=%s)", self._session_id)
+        while not self._closed:
+            attempt += 1
+            try:
+                query: dict[str, str] = {"token": self._opts.token, "codec": self._opts.codec}
+                if self._opts.sample_rate is not None:
+                    query["sr"] = str(self._opts.sample_rate)
+                url = to_ws_url(self._opts.api_url, f"/v1/audio/{self._session_id}", query)
+                url = append_client_query_params(url)
+                self._ws = await connect(
+                    url,
+                    ping_interval=20,
+                    ping_timeout=15,
+                    additional_headers=client_headers(),
+                    max_size=4 * 1024 * 1024,
+                )
+                self._control_task = asyncio.create_task(
+                    self._control_loop(), name="daguito-audio-control",
+                )
+                try:
+                    await asyncio.wait_for(
+                        self._opened.wait(), timeout=self._opts.ready_timeout_s,
+                    )
+                except asyncio.TimeoutError:
+                    raise AudioStreamError("ready timeout after reconnect")
+                log.info("daguito audio reconnected after %d attempt(s)", attempt)
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception as err:
+                log.warning("audio reconnect attempt %d failed: %s", attempt, err)
+                if self._ws is not None:
+                    try:
+                        await self._ws.close()
+                    except Exception:
+                        pass
+                    self._ws = None
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 30.0)
 
     def _handle_text_frame(self, raw: str) -> None:
         try:

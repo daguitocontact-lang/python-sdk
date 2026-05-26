@@ -330,6 +330,8 @@ class WebhookStreamSession:
 
     async def _recv_loop(self) -> None:
         assert self._ws is not None
+        drop_reason: str | None = None
+        drop_code: int = 1006  # abnormal closure default
         try:
             async for raw in self._ws:
                 try:
@@ -338,15 +340,77 @@ class WebhookStreamSession:
                     continue
                 if isinstance(frame, dict):
                     await self._handle_frame(frame)
+            # Iterator ended without raising — the server closed the WS.
+            if not self._closed:
+                drop_reason = "server closed connection"
         except websockets.exceptions.ConnectionClosed as err:
-            self._dispatch_event(
-                "closed", ClosedEvent(code=err.code, reason=err.reason or "")
-            )
+            if not self._closed:
+                drop_reason = err.reason or f"code={err.code}"
+                drop_code = err.code or 1006
         except asyncio.CancelledError:
             raise
         except Exception:
             log.exception("recv loop crashed")
-            self._dispatch_event("error", ErrorEvent(message="recv loop crashed"))
+            if not self._closed:
+                drop_reason = "recv loop crashed"
+        if drop_reason is None:
+            return
+        if not self._opts.auto_reconnect:
+            self._dispatch_event(
+                "closed", ClosedEvent(code=drop_code, reason=drop_reason)
+            )
+            return
+        asyncio.create_task(self._reconnect_loop(reason=drop_reason))
+
+    async def _reconnect_loop(self, *, reason: str) -> None:
+        """Re-open the WS after an unexpected drop. Backoff 1s, 2s, 4s … 30s.
+
+        Keeps the same session_key, so the daguito server resumes the same
+        Redis pubsub channel — consumers don't see a `closed` event and the
+        in-flight flow execution continues to publish onto the channel we'll
+        re-subscribe to via the handshake.
+        """
+        # Tear down the dead socket BUT keep _emitter/_iter_queues alive so
+        # consumers keep receiving events after the reconnect.
+        if self._ws is not None:
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
+            self._ws = None
+        self._opened.clear()
+        attempt = 0
+        delay = 1.0
+        log.warning("daguito stream dropped (%s) — reconnecting", reason)
+        while not self._closed:
+            attempt += 1
+            try:
+                url = to_ws_url(
+                    self._opts.api_url,
+                    f"/v1/webhooks/{self._opts.webhook_id}/stream",
+                    {"token": self._opts.token},
+                )
+                url = append_client_query_params(url)
+                self._ws = await connect(
+                    url,
+                    ping_interval=25,
+                    ping_timeout=20,
+                    additional_headers=client_headers(),
+                )
+                # New recv task on the fresh socket; the `ready` frame will
+                # re-trigger session.start with the SAME session_key, so the
+                # server picks the existing channel back up.
+                self._recv_task = asyncio.create_task(
+                    self._recv_loop(), name="daguito-stream-recv"
+                )
+                log.info("daguito stream reconnected after %d attempt(s)", attempt)
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception as err:
+                log.warning("reconnect attempt %d failed: %s", attempt, err)
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 30.0)
 
     async def _handle_frame(self, frame: dict[str, Any]) -> None:
         kind = frame.get("type", "") if isinstance(frame, dict) else ""

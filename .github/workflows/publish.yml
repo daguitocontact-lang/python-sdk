@@ -1,0 +1,210 @@
+name: Publish
+
+# Publishes `daguito-sdk` to PyPI whenever `RELEASE` is bumped on main.
+#
+# Designed to be IDEMPOTENT: re-running the workflow with the same RELEASE
+# never fails the run as a whole. If the version is already on PyPI we
+# skip the publish; if the tag is already on origin we skip the tag push.
+# That keeps the badge green even when the same workflow is dispatched
+# twice (CI flake retries, manual reruns, etc.).
+#
+# Auth: PyPI Trusted Publishing (OIDC). No tokens, no secrets.
+# Configure once at
+# https://pypi.org/manage/project/daguito-sdk/settings/publishing/
+#   - Publisher: GitHub
+#   - Owner:     daguitocontact-lang
+#   - Repo:      daguito-python
+#   - Workflow:  publish.yml
+#   - Environment (optional but recommended): pypi
+#
+# How to release:
+#   1. bump version in pyproject.toml + src/daguito/__init__.py
+#   2. echo "0.4.0" > RELEASE
+#   3. commit, push to main
+#   → this workflow picks up the change, builds, publishes, tags v0.4.0.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'RELEASE'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Build only, skip the actual PyPI publish'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: publish-daguito-sdk
+  cancel-in-progress: false
+
+permissions:
+  # PyPI Trusted Publishing needs OIDC.
+  id-token: write
+  # contents: write lets the post-publish step push the version tag back
+  # to the repo using the default GITHUB_TOKEN.
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The `pypi` environment scopes the OIDC token to this exact workflow
+    # in PyPI's settings. If you didn't configure it, remove this block
+    # and just rely on the workflow filename match.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/daguito-sdk/
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # persist-credentials: true (default) writes GITHUB_TOKEN into
+          # .git/config so the final `git push --tags` works.
+          persist-credentials: true
+
+      - name: Read RELEASE version
+        id: ver
+        run: |
+          if [ ! -f RELEASE ]; then
+            echo "::error::RELEASE file is missing"; exit 1
+          fi
+          version=$(head -n1 RELEASE | tr -d '[:space:]')
+          if [ -z "$version" ]; then
+            echo "::error::RELEASE is empty"; exit 1
+          fi
+
+          # Drift guard: pyproject.toml MUST match RELEASE — bumping one
+          # and forgetting the other is the most common foot-gun here.
+          pyproject_version=$(python3 -c "
+          import sys
+          try:
+              import tomllib
+          except ModuleNotFoundError:
+              import tomli as tomllib
+          with open('pyproject.toml','rb') as f:
+              print(tomllib.load(f)['project']['version'])
+          ")
+          if [ "$version" != "$pyproject_version" ]; then
+            echo "::error::RELEASE ($version) and pyproject.toml ($pyproject_version) disagree."
+            exit 1
+          fi
+
+          # Also check the runtime __version__ — keeps `daguito.__version__`
+          # honest after a release.
+          init_version=$(python3 -c "
+          import re
+          m = re.search(r\"__version__\s*=\s*['\\\"]([^'\\\"]+)['\\\"]\", open('src/daguito/__init__.py').read())
+          print(m.group(1) if m else '')
+          ")
+          if [ "$version" != "$init_version" ]; then
+            echo "::error::RELEASE ($version) and __init__.py __version__ ($init_version) disagree."
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Target: daguito-sdk==$version"
+
+      - name: Check if version already exists on PyPI
+        id: check
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          # Direct registry hit avoids spinning up the publish path when
+          # there's nothing to do. 200 = the exact version is published;
+          # 404 = either project missing or this version missing — either
+          # way the publish step decides what to do.
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            "https://pypi.org/pypi/daguito-sdk/${version}/json")
+          if [ "$status" = "200" ]; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "daguito-sdk==${version} is already on PyPI — skipping publish"
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+            echo "Will publish daguito-sdk==${version}"
+          fi
+
+      - name: Install uv
+        if: steps.check.outputs.already == 'false' || inputs.dry-run
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: '0.10.0'
+
+      - name: Build sdist + wheel
+        if: steps.check.outputs.already == 'false' || inputs.dry-run
+        run: |
+          rm -rf dist/
+          uv build
+
+      - name: Sanity check built artifacts
+        if: steps.check.outputs.already == 'false' || inputs.dry-run
+        run: |
+          # Make sure the wheel and sdist names match the expected version.
+          version="${{ steps.ver.outputs.version }}"
+          ls -lh dist/
+          if ! ls dist/daguito_sdk-${version}-py3-none-any.whl >/dev/null 2>&1; then
+            echo "::error::expected wheel daguito_sdk-${version}-py3-none-any.whl missing in dist/"
+            exit 1
+          fi
+          if ! ls dist/daguito_sdk-${version}.tar.gz >/dev/null 2>&1; then
+            echo "::error::expected sdist daguito_sdk-${version}.tar.gz missing in dist/"
+            exit 1
+          fi
+
+      - name: Publish to PyPI (Trusted Publishing)
+        if: steps.check.outputs.already == 'false' && !inputs.dry-run
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # No `password:` — Trusted Publishing uses the OIDC token from
+        # GitHub Actions. PyPI side is configured at
+        # https://pypi.org/manage/project/daguito-sdk/settings/publishing/
+
+      - name: Dry-run skipped publish
+        if: inputs.dry-run
+        run: |
+          echo "Dry run requested — skipping PyPI upload."
+          echo "Artifacts that would have been uploaded:"
+          ls -lh dist/
+
+      - name: Tag the release
+        if: ${{ !inputs.dry-run }}
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          tag="v${version}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Local guard: skip if the tag already exists locally.
+          if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+            echo "Tag $tag already exists locally — skipping create."
+          else
+            git tag -a "$tag" -m "daguito-sdk $version"
+          fi
+
+          # Remote guard: only push when origin doesn't already have it.
+          # A push failure is logged but doesn't fail the workflow — the
+          # package is published, the tag is bookkeeping.
+          if git ls-remote --exit-code --tags origin "$tag" >/dev/null 2>&1; then
+            echo "Tag $tag already on origin — skipping push."
+          else
+            if git push origin "$tag"; then
+              echo "Pushed tag $tag."
+            else
+              echo "::warning::Failed to push tag $tag — package is published, this is bookkeeping only."
+            fi
+          fi
+
+      - name: Summary
+        if: ${{ !inputs.dry-run }}
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          {
+            echo "## Published ✅"
+            echo ""
+            echo "Package: \`daguito-sdk==${version}\`"
+            echo "URL: https://pypi.org/project/daguito-sdk/${version}/"
+            if [ "${{ steps.check.outputs.already }}" = "true" ]; then
+              echo "_(version was already on PyPI — skipped re-publish)_"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
