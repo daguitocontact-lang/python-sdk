@@ -88,6 +88,12 @@ from .webhook_session import (
     run_webhook,
     run_webhook_sync,
 )
+from .webhook_run_stream import (
+    WebhookRunStreamInput,
+    WebhookRunStreamResult,
+    WebhookStreamRunError,
+    run_webhook_stream,
+)
 from .webhook_stream_session import WebhookStreamSession
 from .audio_stream_session import (
     AudioStreamError,
@@ -108,6 +114,11 @@ __all__ = [
     # streaming
     "WebhookStreamSession",
     "WebhookStreamOptions",
+    # one-shot over WS (no Cloudflare 100s edge timeout)
+    "run_webhook_stream",
+    "WebhookRunStreamInput",
+    "WebhookRunStreamResult",
+    "WebhookStreamRunError",
     # audio upstream (PCM/opus chunks → Daguito → STT internal)
     "AudioStreamSession",
     "AudioStreamOptions",
@@ -176,4 +187,4 @@ __all__ = [
     "TranscriptOrigin",
 ]
 
-__version__ = "0.4.3"
+__version__ = "0.4.4"
