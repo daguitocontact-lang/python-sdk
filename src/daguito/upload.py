@@ -10,7 +10,7 @@ The PUT goes straight to object storage. Cheaper, faster, scales linearly.
 
     from daguito import upload_file, UploadInput
     result = await upload_file(UploadInput(
-        api_url="https://api.daguito.com",
+        api_url="https://ingest.daguito.com",
         webhook_id="wh_xxx",
         token="sk_wh_yyy",
         kind="document",

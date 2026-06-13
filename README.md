@@ -63,7 +63,7 @@ from daguito import run_webhook, WebhookRunInput
 
 async def main():
     result = await run_webhook(WebhookRunInput(
-        api_url="https://api.daguito.com",
+        api_url="https://ingest.daguito.com",
         token="sk_wh_...",
         input={"question": "What is the capital of France?"},
     ))
@@ -82,7 +82,7 @@ from daguito import WebhookStreamSession, WebhookStreamOptions, text_message
 
 async def main():
     opts = WebhookStreamOptions(
-        api_url="https://api.daguito.com",
+        api_url="https://ingest.daguito.com",
         webhook_id="wh_abc123",
         token="sk_wh_...",
     )
@@ -113,7 +113,7 @@ Two paths — pick whichever fits your stack.
 from daguito import upload_file, UploadInput, media_key_message
 
 uploaded = await upload_file(UploadInput(
-    api_url="https://api.daguito.com",
+    api_url="https://ingest.daguito.com",
     webhook_id="wh_abc123",
     token="sk_wh_...",
     kind="document",         # "image" | "audio" | "document" | "video"
@@ -155,7 +155,7 @@ When your KB holds data for many users / workspaces / documents, you want each c
 from daguito import WebhookStreamOptions, WebhookStreamSession, text_message
 
 opts = WebhookStreamOptions(
-    api_url="https://api.daguito.com",
+    api_url="https://ingest.daguito.com",
     webhook_id="wh_abc123",
     token="sk_wh_...",
     scope={"workspace_id": "ws_42", "document_id": "doc_abc"},
@@ -215,7 +215,7 @@ from daguito import (
 )
 
 opts = KnowledgeSessionOptions(
-    api_url="https://api.daguito.com",
+    api_url="https://ingest.daguito.com",
     api_key="sk_dgt_...",
     default_source_id="src_abc123",
 )
@@ -248,7 +248,7 @@ app = FastAPI()
 async def chat(message: str):
     async def event_stream():
         async with WebhookStreamSession(WebhookStreamOptions(
-            api_url="https://api.daguito.com",
+            api_url="https://ingest.daguito.com",
             webhook_id="wh_abc123",
             token="sk_wh_...",
         )) as session:

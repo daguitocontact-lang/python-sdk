@@ -7,7 +7,7 @@ SDK accepts the same string for every flow — the server routes by
 
 Run:
 
-    DAGUITO_API_URL=https://api.daguito.com \\
+    DAGUITO_API_URL=https://ingest.daguito.com \\
     DAGUITO_API_KEY=dgsk_acc_xxxxxxxxxxxx \\
     DAGUITO_FLOW_CHATBOT=wh_chatbot_123 \\
     DAGUITO_FLOW_TRANSCRIBE=wh_transcribe_456 \\
@@ -75,7 +75,7 @@ async def kb_ingest(api_url: str, api_key: str, source_id: str) -> None:
 
 
 async def main() -> None:
-    api_url = os.environ.get("DAGUITO_API_URL", "https://api.daguito.com")
+    api_url = os.environ.get("DAGUITO_API_URL", "https://ingest.daguito.com")
     api_key = env("DAGUITO_API_KEY")
     chatbot = env("DAGUITO_FLOW_CHATBOT")
     transcribe = env("DAGUITO_FLOW_TRANSCRIBE")

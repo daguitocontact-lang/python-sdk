@@ -55,7 +55,7 @@ class AudioStreamError(Exception):
 class AudioStreamOptions:
     """Options for opening an audio upstream session.
 
-    `api_url` is the HTTPS Daguito API base (e.g. `https://api.daguito.com`);
+    `api_url` is the HTTPS Daguito API base (e.g. `https://ingest.daguito.com`);
     the SDK converts to `wss://` and appends the audio path. `token` is the
     webhook's `sk_wh_…` streaming token — same token used by
     `WebhookStreamSession`.

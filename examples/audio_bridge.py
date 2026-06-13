@@ -20,7 +20,7 @@ The flow on the server side is expected to look roughly like:
 
 Run:
 
-    DAGUITO_API_URL=https://api.daguito.com \\
+    DAGUITO_API_URL=https://ingest.daguito.com \\
     DAGUITO_WEBHOOK_ID=wh_… \\
     DAGUITO_TOKEN=sk_wh_… \\
     python examples/audio_bridge.py path/to/audio.pcm

@@ -12,7 +12,7 @@ End-to-end flow:
 
 Run:
 
-    DAGUITO_API_URL=https://api.daguito.com \\
+    DAGUITO_API_URL=https://ingest.daguito.com \\
     DAGUITO_API_KEY=dgsk_acc_xxxxxxxxxxxx \\
     DAGUITO_FLOW_ID=flow_abc123 \\
     python examples/admin_keys.py
@@ -34,7 +34,7 @@ def env(name: str) -> str:
 
 
 async def main() -> None:
-    api_url = os.environ.get("DAGUITO_API_URL", "https://api.daguito.com")
+    api_url = os.environ.get("DAGUITO_API_URL", "https://ingest.daguito.com")
     api_key = env("DAGUITO_API_KEY")
     flow_id = env("DAGUITO_FLOW_ID")
 
